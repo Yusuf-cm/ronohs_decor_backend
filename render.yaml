@@ -4,29 +4,30 @@ services:
   - type: web
     name: ronohs-decor-backend
     env: python
-    region: frankfurt # You can choose a region closer to you
+    region: frankfurt
     plan: free
-    rootDir: . # Specifies that the root is the current directory
+    # The 'rootDir' should point to the backend directory relative to the repo root.
+    # Since Render will be looking for this file at the root, we must tell it where the Django project is.
+    # However, if you are using the blueprint method and specifying 'backend/render.yaml' as the path,
+    # then the rootDir inside this file should be '.'
+    # To avoid confusion, let's remove it and rely on the Blueprint path setting.
+
     buildCommand: |
       pip install -r requirements.txt
       python manage.py collectstatic --noinput
       python manage.py migrate
-    startCommand: "gunicorn ronohs_decor_backend.wsgi:application"
+    startCommand: "gunicorn ronohs_decor_backend.wsgi" # Removed :application for broader compatibility
     envVars:
       - key: DJANGO_ENV
         value: production
       - key: DJANGO_SECRET_KEY
-        generateValue: true # Render will generate a random secret key
+        generateValue: true
       - key: DATABASE_URL
         fromService:
-          type: psql
+          type: postgres # CORRECTED: Changed 'psql' to 'postgres'
           name: ronohs-decor-db
           property: connectionString
-      - key: CLOUDINARY_URL
-        fromService:
-          type: external
-          name: cloudinary
-          property: url
+      # --- REMOVED Cloudinary from here. We will add secrets manually. ---
 
 databases:
   - name: ronohs-decor-db
