@@ -1,0 +1,35 @@
+# backend/render.yaml
+
+services:
+  - type: web
+    name: ronohs-decor-backend
+    env: python
+    region: frankfurt # You can choose a region closer to you
+    plan: free
+    rootDir: . # Specifies that the root is the current directory
+    buildCommand: |
+      pip install -r requirements.txt
+      python manage.py collectstatic --noinput
+      python manage.py migrate
+    startCommand: "gunicorn ronohs_decor_backend.wsgi:application"
+    envVars:
+      - key: DJANGO_ENV
+        value: production
+      - key: DJANGO_SECRET_KEY
+        generateValue: true # Render will generate a random secret key
+      - key: DATABASE_URL
+        fromService:
+          type: psql
+          name: ronohs-decor-db
+          property: connectionString
+      - key: CLOUDINARY_URL
+        fromService:
+          type: external
+          name: cloudinary
+          property: url
+
+databases:
+  - name: ronohs-decor-db
+    plan: free
+    databaseName: ronohs_decor
+    user: ronohs_user

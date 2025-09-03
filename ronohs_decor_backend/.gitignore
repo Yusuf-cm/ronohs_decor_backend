@@ -1,0 +1,22 @@
+# Environment variables
+.env
+
+# Python bytecode and cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Django database file
+db.sqlite3
+
+# Virtual environment folder (if you named it 'venv' or 'env')
+venv/
+env/
+
+# Media files folder (optional, but often a good idea
+# if you store user-uploaded content in a separate service like S3 in production)
+/media/
+
+# Static files collected by collectstatic
+/staticfiles/
