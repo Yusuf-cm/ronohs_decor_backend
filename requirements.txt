@@ -26,3 +26,6 @@ cloudinary==1.44.1
 
 # Payment Gateway
 stripe==12.3.0
+
+# Environment Variables
+python-dotenv==1.0.1
