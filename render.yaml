@@ -9,20 +9,30 @@ services:
     buildCommand: |
       pip install -r requirements.txt
       python manage.py collectstatic --noinput
-      python manage.py migrate
+      DATABASE_URL=$DATABASE_URL_BUILD python manage.py migrate
     startCommand: "gunicorn ronohs_decor_backend.wsgi"
     envVars:
       - key: DJANGO_ENV
         value: production
       - key: DJANGO_SECRET_KEY
         generateValue: true
+      # Internal URL for runtime
       - key: DATABASE_URL
         fromDatabase:
           name: ronohs-decor-db
           property: connectionStringStandard
+      # External URL for migrations during build
+      - key: DATABASE_URL_BUILD
+        sync: false # you’ll paste the External URL from Render dashboard manually
       - key: CLOUDINARY_URL
-        sync: false # Set manually in Render Dashboard
+        sync: false # set manually in Render dashboard
       - key: ALLOWED_HOSTS
         value: ".onrender.com,localhost,127.0.0.1"
       - key: DEBUG
         value: "False"
+
+databases:
+  - name: ronohs-decor-db
+    plan: free
+    databaseName: ronohs_decor
+    user: ronohs_user
