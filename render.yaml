@@ -4,8 +4,6 @@ services:
     env: python
     region: frankfurt
     plan: free
-    dependsOn:
-      - ronohs-decor-db
     buildCommand: |
       pip install -r requirements.txt
       python manage.py collectstatic --noinput
