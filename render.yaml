@@ -5,8 +5,7 @@ services:
     region: frankfurt
     plan: free
     rootDir: ronohs_decor_backend
-    dependsOn:
-      - ronohs-decor-db
+    dependsOn: - ronohs-decor-db
     buildCommand: |
       pip install -r requirements.txt
       python manage.py collectstatic --noinput
