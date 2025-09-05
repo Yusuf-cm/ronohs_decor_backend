@@ -73,14 +73,20 @@ TEMPLATES = [
 WSGI_APPLICATION = "ronohs_decor_backend.wsgi.application"
 
 # Database
+db_url = None
+if IS_PRODUCTION:
+    # During build (migrations), Render uses DATABASE_URL_BUILD manually set in dashboard
+    db_url = os.getenv("DATABASE_URL_BUILD") or os.getenv("DATABASE_URL")
+else:
+    # Local dev or fallback
+    db_url = os.getenv("DATABASE_URL", "sqlite:///db.sqlite3")
+
 DATABASES = {
     "default": dj_database_url.config(
-        default=os.getenv("DATABASE_URL")
+        default=db_url,
+        conn_max_age=600,
+        ssl_require=IS_PRODUCTION,
     )
-}
-if IS_PRODUCTION:
-    DATABASES = {
-    'default': dj_database_url.config(default=os.environ.get("DATABASE_URL"))
 }
 
 # Password validation
