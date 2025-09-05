@@ -1,35 +1,30 @@
+# backend/render.yaml
+
 services:
   - type: web
     name: ronohs-decor-backend
     env: python
     region: frankfurt
     plan: free
-    dependsOn:
-      - ronohs-decor-db
+    # rootDir is not needed if the yaml is in the same directory
     buildCommand: |
       pip install -r requirements.txt
       python manage.py collectstatic --noinput
-      DATABASE_URL=$DATABASE_URL_BUILD python manage.py migrate
+      python manage.py migrate
     startCommand: "gunicorn ronohs_decor_backend.wsgi"
     envVars:
       - key: DJANGO_ENV
         value: production
       - key: DJANGO_SECRET_KEY
-        generateValue: true
-      # Internal URL for runtime
+        generateValue: true # Render will generate a secure secret key
       - key: DATABASE_URL
-        fromDatabase:
+        fromService: # CORRECTED: Use fromService instead of fromDatabase
+          type: psql
           name: ronohs-decor-db
-          property: connectionStringStandard
-      # External URL for migrations during build
-      - key: DATABASE_URL_BUILD
-        sync: false # you’ll paste the External URL from Render dashboard manually
-      - key: CLOUDINARY_URL
-        sync: false # set manually in Render dashboard
-      - key: ALLOWED_HOSTS
-        value: ".onrender.com,localhost,127.0.0.1"
-      - key: DEBUG
-        value: "False"
+          property: connectionString # CORRECTED: Use connectionString
+      # Let's remove CLOUDINARY_URL and other secrets from here.
+      # It is much safer to manage these secrets only in the Render dashboard's UI.
+      # They will still be available to your application.
 
 databases:
   - name: ronohs-decor-db
