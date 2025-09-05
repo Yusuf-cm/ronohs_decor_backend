@@ -4,7 +4,6 @@ services:
     env: python
     region: frankfurt
     plan: free
-    rootDir: ronohs_decor_backend
     dependsOn:
       - ronohs-decor-db
     buildCommand: |
