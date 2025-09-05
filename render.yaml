@@ -6,7 +6,6 @@ services:
     env: python
     region: frankfurt
     plan: free
-    # rootDir is not needed if the yaml is in the same directory
     buildCommand: |
       pip install -r requirements.txt
       python manage.py collectstatic --noinput
@@ -16,15 +15,12 @@ services:
       - key: DJANGO_ENV
         value: production
       - key: DJANGO_SECRET_KEY
-        generateValue: true # Render will generate a secure secret key
+        generateValue: true
       - key: DATABASE_URL
-        fromService: # CORRECTED: Use fromService instead of fromDatabase
-          type: psql
+        fromService:
+          type: postgres # CORRECTED: Changed 'psql' to 'postgres'
           name: ronohs-decor-db
-          property: connectionString # CORRECTED: Use connectionString
-      # Let's remove CLOUDINARY_URL and other secrets from here.
-      # It is much safer to manage these secrets only in the Render dashboard's UI.
-      # They will still be available to your application.
+          property: connectionString
 
 databases:
   - name: ronohs-decor-db
