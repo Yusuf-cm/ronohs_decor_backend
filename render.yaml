@@ -18,7 +18,7 @@ services:
       - key: DATABASE_URL
         fromDatabase:
           name: ronohs-decor-db
-          property: connectionStringStandard
+          property: connectionString
       # External URL for migrations during build
       - key: DATABASE_URL_BUILD
         sync: false # you’ll paste the External URL from Render dashboard manually
