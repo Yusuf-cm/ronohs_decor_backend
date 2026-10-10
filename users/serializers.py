@@ -2,6 +2,8 @@
 
 from django.contrib.auth.models import User
 from rest_framework import serializers
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from api.models import Wishlist # Make sure Wishlist is imported
 
@@ -28,18 +30,26 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
         return token
 
 class RegisterSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(required=True)
     password = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})
 
     class Meta:
         model = User
         fields = ('username', 'password', 'email', 'first_name', 'last_name')
     
+    def validate(self, data):
+        try:
+            validate_password(data['password'], User(**{k: v for k, v in data.items() if k != 'password'}))
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({'password': exc.messages})
+        return data
+
     def create(self, validated_data):
         user = User.objects.create_user(
             username=validated_data['username'],
             email=validated_data['email'],
-            first_name=validated_data['first_name'],
-            last_name=validated_data['last_name'],
+            first_name=validated_data.get('first_name', ''),
+            last_name=validated_data.get('last_name', ''),
         )
         user.set_password(validated_data['password'])
         user.save()

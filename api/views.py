@@ -3,6 +3,7 @@
 import stripe
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.db import transaction
 from django.db.models import Sum, F, ExpressionWrapper, DecimalField, Case, When, Value, Count
 from django.db.models.functions import TruncDate, Coalesce
 from django.utils import timezone
@@ -31,6 +32,7 @@ from .serializers import (
 )
 from users.serializers import AdminUserListSerializer
 from .permissions import IsSuperUser
+from .checkout import CheckoutInput
 
 # Constants for business logic
 SHIPPING_COST_THRESHOLD = Decimal('5000.00')
@@ -186,9 +188,11 @@ class CreatePaymentIntentView(APIView):
     
     def post(self, request, *args, **kwargs):
         stripe.api_key = settings.STRIPE_SECRET_KEY
-        cart_items = request.data.get('items', [])
-        customer_details = request.data.get('customer_details', {})
-        coupon_code = request.data.get('coupon_code', None)
+        checkout = CheckoutInput(data=request.data)
+        checkout.is_valid(raise_exception=True)
+        cart_items = checkout.validated_data['items']
+        customer_details = checkout.validated_data['customer_details']
+        coupon_code = checkout.validated_data.get('coupon_code')
         if not cart_items: 
             return Response({'error': 'Cart is empty'}, status=status.HTTP_400_BAD_REQUEST)
         
@@ -206,9 +210,9 @@ class CreatePaymentIntentView(APIView):
                 quantity = item_data.get('quantity')
 
                 if not product:
-                    raise Exception(f"Product with ID {product_id} not found.")
+                    return Response({'error': 'A product in your cart is no longer available.'}, status=status.HTTP_400_BAD_REQUEST)
                 if product.stock < quantity:
-                    raise Exception(f"Not enough stock for {product.name}. Only {product.stock} available.")
+                    return Response({'error': f'Not enough stock for {product.name}. Only {product.stock} available.'}, status=status.HTTP_400_BAD_REQUEST)
                 
                 item_cost = product.price * quantity
                 subtotal += item_cost
@@ -220,7 +224,7 @@ class CreatePaymentIntentView(APIView):
             if coupon_code:
                 coupon_instance = Coupon.objects.get_active_coupon(coupon_code)
                 if coupon_instance:
-                    discount_amount = (subtotal * Decimal(coupon_instance.discount_percent / 100)).quantize(Decimal('0.01'))
+                    discount_amount = (subtotal * (Decimal(coupon_instance.discount_percent) / Decimal('100'))).quantize(Decimal('0.01'))
                 else:
                     return Response({'error': 'Invalid or expired coupon code.'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -239,7 +243,7 @@ class CreatePaymentIntentView(APIView):
                 'email': customer_details.get('email'),
                 'phone': customer_details.get('phone'),
                 'address_line_1': customer_details.get('address_line_1'),
-                'address_line_2': customer_details.get('address_line_2'),
+                'address_line_2': customer_details.get('address_line_2', ''),
                 'city': customer_details.get('city'),
                 'county_state': customer_details.get('county'),
                 'paid': False,
@@ -298,19 +302,24 @@ class StripeWebhookView(APIView):
         
         if event['type'] == 'payment_intent.succeeded':
             payment_intent = event['data']['object']
-            order_id = payment_intent.metadata.get('order_id')
+            order_id = payment_intent.get('metadata', {}).get('order_id')
             if order_id:
                 try:
-                    order = Order.objects.get(id=order_id)
-                    if not order.paid:  # Prevent double processing
-                        order.paid = True
-                        order.save()
-                        # Decrease stock
-                        for item in order.items.all():
-                            product = item.product
-                            if product and product.stock >= item.quantity:
-                                product.stock -= item.quantity
-                                product.save()
+                    with transaction.atomic():
+                        order = Order.objects.select_for_update().get(id=order_id)
+                        if payment_intent.get('currency') != 'kes' or payment_intent.get('amount_received') != int(order.grand_total * 100):
+                            return Response({'error': 'Payment does not match the order total.'}, status=status.HTTP_400_BAD_REQUEST)
+                        if not order.paid:
+                            # Serialize webhook retries and concurrent stock updates.
+                            items = list(order.items.all())
+                            products = Product.all_products.select_for_update().filter(id__in=[item.product_id for item in items]).order_by('id').in_bulk()
+                            for item in items:
+                                product = products.get(item.product_id)
+                                if product and product.stock >= item.quantity:
+                                    product.stock -= item.quantity
+                                    product.save(update_fields=['stock'])
+                            order.paid = True
+                            order.save(update_fields=['paid'])
                 except Order.DoesNotExist:
                     print(f"Webhook Error: Order with ID {order_id} not found.")
         return Response(status=status.HTTP_200_OK)
