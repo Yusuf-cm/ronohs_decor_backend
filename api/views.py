@@ -3,6 +3,7 @@
 import stripe
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.db import transaction
 from django.db.models import Sum, F, ExpressionWrapper, DecimalField, Case, When, Value, Count
 from django.db.models.functions import TruncDate, Coalesce
 from django.utils import timezone
@@ -301,19 +302,24 @@ class StripeWebhookView(APIView):
         
         if event['type'] == 'payment_intent.succeeded':
             payment_intent = event['data']['object']
-            order_id = payment_intent.metadata.get('order_id')
+            order_id = payment_intent.get('metadata', {}).get('order_id')
             if order_id:
                 try:
-                    order = Order.objects.get(id=order_id)
-                    if not order.paid:  # Prevent double processing
-                        order.paid = True
-                        order.save()
-                        # Decrease stock
-                        for item in order.items.all():
-                            product = item.product
-                            if product and product.stock >= item.quantity:
-                                product.stock -= item.quantity
-                                product.save()
+                    with transaction.atomic():
+                        order = Order.objects.select_for_update().get(id=order_id)
+                        if payment_intent.get('currency') != 'kes' or payment_intent.get('amount_received') != int(order.grand_total * 100):
+                            return Response({'error': 'Payment does not match the order total.'}, status=status.HTTP_400_BAD_REQUEST)
+                        if not order.paid:
+                            # Serialize webhook retries and concurrent stock updates.
+                            items = list(order.items.all())
+                            products = Product.all_products.select_for_update().filter(id__in=[item.product_id for item in items]).order_by('id').in_bulk()
+                            for item in items:
+                                product = products.get(item.product_id)
+                                if product and product.stock >= item.quantity:
+                                    product.stock -= item.quantity
+                                    product.save(update_fields=['stock'])
+                            order.paid = True
+                            order.save(update_fields=['paid'])
                 except Order.DoesNotExist:
                     print(f"Webhook Error: Order with ID {order_id} not found.")
         return Response(status=status.HTTP_200_OK)

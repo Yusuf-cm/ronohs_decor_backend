@@ -55,3 +55,35 @@ class CustomerJourneyTests(APITestCase):
     def test_registration_with_optional_names(self):
         response = self.client.post('/api/auth/register/', {'username': 'new-user', 'email': 'new@example.invalid', 'password': 'New-test-password-76'}, format='json')
         self.assertEqual(response.status_code, 201)
+
+    def test_weak_password_returns_validation_error(self):
+        response = self.client.post('/api/auth/register/', {'username': 'weak-user', 'email': 'weak@example.invalid', 'password': '123'}, format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(User.objects.filter(username='weak-user').exists())
+
+    def test_email_required_without_server_error(self):
+        response = self.client.post('/api/auth/register/', {'username': 'missing-email', 'password': 'Good-test-password-42'}, format='json')
+        self.assertEqual(response.status_code, 400)
+
+    @patch('api.views.stripe.Webhook.construct_event')
+    def test_webhook_retry_only_deducts_stock_once(self, construct):
+        from django.test import override_settings
+        from .models import OrderItem
+        order = Order.objects.create(user=self.user, first_name='Test', last_name='Customer', email='test@example.invalid', phone='0', grand_total=Decimal('1000'))
+        OrderItem.objects.create(order=order, product=self.product, quantity=1, price=self.product.price)
+        construct.return_value = {'type': 'payment_intent.succeeded', 'data': {'object': {'metadata': {'order_id': str(order.id)}, 'currency': 'kes', 'amount_received': 100000}}}
+        with override_settings(STRIPE_WEBHOOK_SECRET='test-only'):
+            for _ in range(2):
+                self.assertEqual(self.client.post('/api/stripe-webhook/', {}, format='json').status_code, 200)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock, 4)
+
+    @patch('api.views.stripe.Webhook.construct_event')
+    def test_wrong_payment_amount_does_not_mark_order_paid(self, construct):
+        from django.test import override_settings
+        order = Order.objects.create(user=self.user, first_name='Test', last_name='Customer', email='test@example.invalid', phone='0', grand_total=Decimal('1000'))
+        construct.return_value = {'type': 'payment_intent.succeeded', 'data': {'object': {'metadata': {'order_id': str(order.id)}, 'currency': 'kes', 'amount_received': 100}}}
+        with override_settings(STRIPE_WEBHOOK_SECRET='test-only'):
+            self.assertEqual(self.client.post('/api/stripe-webhook/', {}, format='json').status_code, 400)
+        order.refresh_from_db()
+        self.assertFalse(order.paid)
